@@ -15,7 +15,23 @@
  */
 import { isEngineNode } from './engine.ts';
 
-type Constructor = abstract new (...args: never[]) => object;
+export type Constructor = abstract new (...args: never[]) => object;
+
+/**
+ * Make `target` answer `instanceof` for engine nodes as well, and for everything it did before: its
+ * own `Symbol.hasInstance` if it defines one, and the ordinary prototype walk if not. Only for
+ * `target` itself, not a subclass that inherits the check: `Text` and `Element` answer for
+ * themselves.
+ */
+export function letEngineNodesPass(target: Constructor): void {
+  const own = target[Symbol.hasInstance];
+  Object.defineProperty(target, Symbol.hasInstance, {
+    configurable: true,
+    value(this: Constructor, value: unknown): boolean {
+      return (this === target && isEngineNode(value)) || own.call(this, value);
+    },
+  });
+}
 
 /** The classes already patched, so one `Node` is patched once however often an app is mounted. */
 const patched = new WeakSet<object>();
@@ -24,13 +40,5 @@ export function installNodeGlobal(): void {
   const node = (globalThis as { Node?: Constructor }).Node;
   if (typeof node !== 'function' || patched.has(node)) return;
   patched.add(node);
-  // Its own check if it defines one, and the ordinary prototype walk if not.
-  const own = node[Symbol.hasInstance];
-  Object.defineProperty(node, Symbol.hasInstance, {
-    configurable: true,
-    value(this: Constructor, value: unknown): boolean {
-      // Not for a subclass, which inherits this: `Text` and `Element` answer for themselves.
-      return (this === node && isEngineNode(value)) || own.call(this, value);
-    },
-  });
+  letEngineNodesPass(node);
 }
